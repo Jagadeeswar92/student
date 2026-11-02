@@ -4,31 +4,20 @@ import jwt from "jsonwebtoken";
 import { createHash, randomBytes } from "node:crypto";
 import { body, validationResult } from "express-validator";
 import User from "../models/User.js";
-import PendingRegistration from "../models/PendingRegistration.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   sendFailedLoginEmail,
   sendLoginEmail,
   sendLogoutEmail,
   sendRegisterEmail,
-  sendRegistrationOtpEmail,
   sendResetEmail,
 } from "../services/emailService.js";
 import { cleanEmail, isValidPhone } from "../utils/query.js";
-import {
-  createOtp,
-  hashOtp,
-  verifyOtp,
-} from "../utils/otp.js";
 import { runInBackground } from "../utils/runInBackground.js";
 import { getRegistrationProgram, registrationPrograms } from "../utils/academicOptions.js";
 import { isStrongPassword } from "../utils/passwordValidation.js";
 
 const router = Router();
-const registrationExpiryMs = 30 * 60 * 1000;
-const otpExpiryMs = 10 * 60 * 1000;
-const otpResendDelayMs = 60 * 1000;
-const otpAttemptLimit = 5;
 
 function getPasswordRules() {
   return body("password")
@@ -113,264 +102,6 @@ const registrationDetailsRules = [
   body("yearOfStudy").isInt({ min: 1, max: 6 }).toInt(),
   body("passingOutYear").isInt({ min: 1980, max: 2100 }).toInt(),
 ];
-
-router.post("/registration/start", registrationDetailsRules, async (req, res, next) => {
-  try {
-    if (sendErrors(req, res)) return;
-
-    const {
-      firstName,
-      lastName,
-      email,
-      rollNumber,
-      gender,
-      phone,
-      address,
-      program: requestedProgram,
-      branch,
-    } = req.body;
-    const program = getRegistrationProgram(requestedProgram);
-    if (!program) {
-      return res.status(400).json({
-        message: "Choose a valid course of study.",
-      });
-    }
-    if (`${firstName.trim()} ${lastName.trim()}`.length > 100) {
-      return res.status(400).json({
-        message: "First and last name together must be 100 characters or fewer.",
-      });
-    }
-    const yearOfStudy = Number(req.body.yearOfStudy);
-    const passingOutYear = Number(req.body.passingOutYear);
-    if (yearOfStudy > program.durationYears) {
-      return res.status(400).json({
-        message: `Year of study must be between 1 and ${program.durationYears} for ${program.name}.`,
-      });
-    }
-    if (await User.exists({ email: cleanEmail(email) })) {
-      return res.status(409).json({
-        message: "An account already exists for this email. Please sign in.",
-      });
-    }
-    const normalizedRollNumber = rollNumber.trim().toUpperCase();
-    if (await User.exists({ "studentProfile.rollNumber": normalizedRollNumber })) {
-      return res.status(409).json({
-        message: "That college roll number is already registered.",
-      });
-    }
-
-    const normalizedEmail = cleanEmail(email);
-    let pending = await PendingRegistration.findOne({ email: normalizedEmail });
-    if (!pending) pending = new PendingRegistration({ email: normalizedEmail });
-    pending.firstName = firstName;
-    pending.lastName = lastName;
-    pending.rollNumber = normalizedRollNumber;
-    pending.gender = gender;
-    pending.phone = phone.trim();
-    pending.address = address.trim();
-    pending.program = program.name;
-    pending.branch = branch.trim();
-    pending.yearOfStudy = yearOfStudy;
-    pending.passingOutYear = passingOutYear;
-    pending.passwordHash = "";
-    pending.otpHash = "";
-    pending.otpExpiresAt = null;
-    pending.otpSentAt = null;
-    pending.otpAttempts = 0;
-    pending.expiresAt = new Date(Date.now() + registrationExpiryMs);
-    await pending.save();
-
-    res.status(201).json({
-      challengeId: String(pending._id),
-      expiresInSeconds: registrationExpiryMs / 1000,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post(
-  "/registration/send-otp",
-  [
-    body("challengeId").isMongoId(),
-    body("password")
-      .optional()
-      .custom(isStrongPassword)
-      .withMessage(
-        "Password must be 8 to 100 characters and include uppercase, lowercase, number, and special characters.",
-      ),
-  ],
-  async (req, res, next) => {
-    try {
-      if (sendErrors(req, res)) return;
-      const pending = await PendingRegistration.findById(
-        req.body.challengeId,
-      ).select("+passwordHash +otpHash");
-      if (!pending || pending.expiresAt <= new Date()) {
-        return res.status(410).json({
-          message: "This registration expired. Please start again.",
-          code: "REGISTRATION_EXPIRED",
-        });
-      }
-      if (
-        pending.otpSentAt &&
-        Date.now() - pending.otpSentAt.getTime() < otpResendDelayMs
-      ) {
-        const retryAfterSeconds = Math.ceil(
-          (otpResendDelayMs - (Date.now() - pending.otpSentAt.getTime())) /
-            1000,
-        );
-        return res.status(429).json({
-          message: `Please wait ${retryAfterSeconds} seconds before requesting another code.`,
-          retryAfterSeconds,
-        });
-      }
-
-      if (req.body.password !== undefined) {
-        pending.passwordHash = await bcrypt.hash(req.body.password, 12);
-      }
-      if (!pending.passwordHash) {
-        return res.status(400).json({
-          message: "Create a password before requesting the verification code.",
-        });
-      }
-
-      const otp = createOtp();
-      pending.otpHash = hashOtp(
-        pending.email,
-        otp,
-        process.env.JWT_SECRET,
-      );
-      const otpSentAt = new Date();
-      pending.otpExpiresAt = new Date(otpSentAt.getTime() + otpExpiryMs);
-      pending.otpSentAt = otpSentAt;
-      pending.otpAttempts = 0;
-      pending.expiresAt = new Date(Date.now() + registrationExpiryMs);
-      await pending.save();
-
-      const emailSent = await sendRegistrationOtpEmail(
-        {
-          name: `${pending.firstName} ${pending.lastName}`,
-          email: pending.email,
-        },
-        otp,
-      );
-      if (!emailSent) {
-        pending.otpHash = "";
-        pending.otpExpiresAt = null;
-        pending.otpSentAt = null;
-        await pending.save();
-        return res.status(503).json({
-          message:
-            "Email delivery failed. The backend needs valid SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and EMAIL_FROM settings. Ask the administrator to check the backend mail logs, then retry.",
-          code: "EMAIL_DELIVERY_FAILED",
-        });
-      }
-
-      res.json({
-        message: "Verification code sent to your email address.",
-        resendAfterSeconds: Math.max(
-          0,
-          Math.ceil(
-            (otpSentAt.getTime() + otpResendDelayMs - Date.now()) / 1000,
-          ),
-        ),
-        expiresInSeconds: Math.max(
-          0,
-          Math.ceil((pending.otpExpiresAt.getTime() - Date.now()) / 1000),
-        ),
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.post(
-  "/registration/verify",
-  [body("challengeId").isMongoId(), body("otp").isString().matches(/^[0-9]{6}$/)],
-  async (req, res, next) => {
-    try {
-      if (sendErrors(req, res)) return;
-
-      const pending = await PendingRegistration.findById(
-        req.body.challengeId,
-      ).select("+passwordHash +otpHash");
-      if (!pending || pending.expiresAt <= new Date()) {
-        return res.status(410).json({
-          message: "This registration expired. Please start again.",
-          code: "REGISTRATION_EXPIRED",
-        });
-      }
-      if (!pending.otpHash || !pending.otpExpiresAt) {
-        return res.status(400).json({
-          message: "Request an email verification code first.",
-        });
-      }
-      if (pending.otpExpiresAt <= new Date()) {
-        return res.status(410).json({
-          message: "This verification code expired. Request a new one.",
-          code: "OTP_EXPIRED",
-        });
-      }
-      if (pending.otpAttempts >= otpAttemptLimit) {
-        await pending.deleteOne();
-        return res.status(429).json({
-          message: "Too many incorrect codes. Please start registration again.",
-        });
-      }
-
-      const codeIsValid = verifyOtp(
-        pending.email,
-        req.body.otp,
-        process.env.JWT_SECRET,
-        pending.otpHash,
-      );
-      if (!codeIsValid) {
-        pending.otpAttempts += 1;
-        const remainingAttempts = otpAttemptLimit - pending.otpAttempts;
-        if (remainingAttempts <= 0) {
-          await pending.deleteOne();
-          return res.status(429).json({
-            message: "Too many incorrect codes. Please start registration again.",
-          });
-        }
-        await pending.save();
-        return res.status(400).json({
-          message: `That code is incorrect. ${remainingAttempts} attempts remain.`,
-        });
-      }
-
-      const user = await User.create({
-        name: `${pending.firstName} ${pending.lastName}`,
-        email: pending.email,
-        passwordHash: pending.passwordHash,
-        role: "student",
-        emailVerifiedAt: new Date(),
-        studentProfile: {
-          rollNumber: pending.rollNumber,
-          gender: pending.gender,
-          phone: pending.phone,
-          address: pending.address,
-          program: pending.program,
-          branch: pending.branch,
-          yearOfStudy: pending.yearOfStudy,
-          passingOutYear: pending.passingOutYear,
-        },
-      });
-      await pending.deleteOne();
-      const emailNotificationSent = await sendRegisterEmail(user);
-
-      res.status(201).json({
-        message: "Your student account was created successfully.",
-        user: getPublicUser(user),
-        emailNotificationSent,
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
 
 router.post(
   "/register",
@@ -525,7 +256,6 @@ router.patch(
     if (req.body.name !== undefined) updates.name = req.body.name.trim();
     if (req.body.email !== undefined) {
       updates.email = cleanEmail(req.body.email);
-      if (updates.email !== req.user.email) updates.emailVerifiedAt = null;
     }
 
       const user = await User.findByIdAndUpdate(req.user._id, updates, {

@@ -127,7 +127,7 @@ test("student registration validates details and password before database access
 });
 
 test("registration details reject incomplete requests before database access", async () => {
-  const response = await fetch(`${baseUrl}/api/auth/registration/start`, {
+  const response = await fetch(`${baseUrl}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ firstName: "Student" }),
@@ -153,12 +153,13 @@ test("student registration requires a supported gender before database access", 
   };
 
   for (const gender of [undefined, "invalid"]) {
-    const response = await fetch(`${baseUrl}/api/auth/registration/start`, {
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...registration,
         ...(gender === undefined ? {} : { gender }),
+        password: "StrongPassword123!",
       }),
     });
     const data = await response.json();
@@ -182,13 +183,14 @@ test("registration validates the fixed course options and study-year limits", as
     branch: "Others",
     yearOfStudy: 1,
     passingOutYear: 2030,
+    password: "StrongPassword123!",
   };
 
   for (const invalidValues of [
     { program: "B.Tech" },
     { yearOfStudy: 5 },
   ]) {
-    const response = await fetch(`${baseUrl}/api/auth/registration/start`, {
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...registration, ...invalidValues }),
@@ -201,6 +203,24 @@ test("registration validates the fixed course options and study-year limits", as
     } else {
       assert.match(data.message, /Year of study must be between 1 and 4/);
     }
+  }
+});
+
+test("retired registration email-verification endpoints return 404", async () => {
+  for (const route of [
+    "/api/auth/registration/start",
+    "/api/auth/registration/send-otp",
+    "/api/auth/registration/verify",
+  ]) {
+    const response = await fetch(`${baseUrl}${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 404);
+    assert.match(data.message, /route not found/i);
   }
 });
 

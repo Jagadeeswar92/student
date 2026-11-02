@@ -30,7 +30,7 @@ Copy-Item server/.env.example server/.env
 cd server
 npm install
 ```
-Add your MongoDB connection and Admin details to `server/.env`. Email verification requires valid SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and optionally `EMAIL_FROM`). For Gmail, use an App Password rather than your normal account password. Configure the same SMTP variables in the backend Render service's environment settings; otherwise verification mail cannot be delivered. Keep credentials private.
+Add your MongoDB connection and Admin details to `server/.env`. Email notifications and password-reset emails use SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and optionally `EMAIL_FROM`). For Gmail, use an App Password rather than your normal account password. Configure the same SMTP variables in the backend Render service's environment settings; otherwise application emails cannot be delivered. Keep credentials private.
 For the current Render deployment, map the URLs as follows:
 
 - Frontend `VITE_API_URL`: `https://server-7a1u.onrender.com` (defaulted by `client/.env.production`; a Render environment variable can override it)

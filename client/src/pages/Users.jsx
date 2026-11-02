@@ -118,7 +118,6 @@ export default function UsersPage() {
                         <div>
                           <strong>{user.name}</strong>
                           <small>{user.email}</small>
-                          {user.emailVerifiedAt && <small>Verified email</small>}
                         </div>
                       </div>
                     </td>

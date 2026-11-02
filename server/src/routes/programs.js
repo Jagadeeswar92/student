@@ -1,7 +1,6 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import Course from "../models/Course.js";
-import PendingRegistration from "../models/PendingRegistration.js";
 import Program from "../models/Program.js";
 import Student from "../models/Student.js";
 import User from "../models/User.js";
@@ -143,11 +142,6 @@ router.patch("/:id", async (req, res, next) => {
           { $set: { "studentProfile.program": newName } },
           { session },
         );
-        await PendingRegistration.updateMany(
-          { program: oldNamePattern },
-          { $set: { program: newName } },
-          { session },
-        );
         program.name = newName;
         program.key = newKey;
         if (req.body.durationYears !== undefined) {
@@ -170,14 +164,13 @@ router.delete("/:id", async (req, res, next) => {
     if (!program) return res.status(404).json({ message: "Program not found." });
 
     const namePattern = new RegExp(`^${escapeRegex(program.name)}$`, "i");
-    const [courseCount, studentCount, userCount, pendingCount] =
+    const [courseCount, studentCount, userCount] =
       await Promise.all([
         Course.countDocuments({ degree: namePattern }),
         Student.countDocuments({ degree: namePattern }),
         User.countDocuments({ "studentProfile.program": namePattern }),
-        PendingRegistration.countDocuments({ program: namePattern }),
       ]);
-    if (courseCount + studentCount + userCount + pendingCount > 0) {
+    if (courseCount + studentCount + userCount > 0) {
       return res.status(409).json({
         message: "This program is in use and cannot be deleted.",
       });

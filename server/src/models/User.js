@@ -47,7 +47,6 @@ const userSchema = new mongoose.Schema(
       default: "viewer",
     },
     studentProfile: { type: studentProfileSchema, default: undefined },
-    emailVerifiedAt: { type: Date, default: null },
     passwordResetTokenHash: { type: String, select: false },
     passwordResetExpires: { type: Date, select: false },
   },

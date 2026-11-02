@@ -11,7 +11,6 @@ import User from "../src/models/User.js";
 import Student from "../src/models/Student.js";
 import Course from "../src/models/Course.js";
 import Instructor from "../src/models/Instructor.js";
-import PendingRegistration from "../src/models/PendingRegistration.js";
 import Program from "../src/models/Program.js";
 import {
   documentFolder,
@@ -91,7 +90,6 @@ before(async () => {
     Student.init(),
     Course.init(),
     Instructor.init(),
-    PendingRegistration.init(),
     Program.init(),
   ]);
   await Program.create([
@@ -120,7 +118,6 @@ before(async () => {
       email: `student-${emailTag}@example.invalid`,
       passwordHash,
       role: "student",
-      emailVerifiedAt: new Date(),
       studentProfile: {
         rollNumber: `IT${Date.now()}`,
         phone: "+15551234567",
@@ -403,7 +400,6 @@ test("admin role management and direct student registration", async () => {
   const savedUser = await User.findOne({ email: registration.email });
   assert.ok(savedUser);
   assert.equal(savedUser.studentProfile.rollNumber, registration.rollNumber.toUpperCase());
-  assert.equal(savedUser.emailVerifiedAt, null);
   assert.equal(await bcrypt.compare(testPassword, savedUser.passwordHash), true);
 });
 

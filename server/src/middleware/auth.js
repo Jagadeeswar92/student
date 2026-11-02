@@ -23,7 +23,7 @@ export async function requireAuth(req, res, next) {
 
   try {
     const user = await User.findById(payload.sub).select(
-      "_id name email role studentProfile emailVerifiedAt",
+      "_id name email role studentProfile",
     );
     if (!user) {
       return res

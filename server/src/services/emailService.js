@@ -119,18 +119,6 @@ export async function sendRegisterEmail(user) {
   );
 }
 
-export async function sendRegistrationOtpEmail(user, otp) {
-  const safeName = escapeHtml(user.name);
-  const safeOtp = escapeHtml(otp);
-  return sendNotice(
-    user,
-    "Verify your CampusFlow student account",
-    `Hello ${user.name}, your email verification code is ${otp}. It expires in 10 minutes. Do not share this code.`,
-    `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#172033"><h2>Verify your student account</h2><p>Hello ${safeName},</p><p>Enter this code to verify your email address:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${safeOtp}</p><p>This code expires in 10 minutes. Do not share it with anyone.</p></body></html>`,
-    "Registration verification",
-  );
-}
-
 export async function sendRoleEmail(user, oldRole) {
   const safeName = escapeHtml(user.name);
   const safeOldRole = escapeHtml(oldRole);

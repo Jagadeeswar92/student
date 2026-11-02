@@ -10,7 +10,7 @@ router.use(requireAuth, requireAdmin);
 router.get("/", async (_req, res, next) => {
   try {
     const users = await User.find()
-    .select("name email role studentProfile emailVerifiedAt createdAt")
+      .select("name email role studentProfile createdAt")
       .sort({ createdAt: -1 });
     res.json({
       items: users.map((user) => ({
@@ -19,7 +19,6 @@ router.get("/", async (_req, res, next) => {
         email: user.email,
         role: user.role,
         studentProfile: user.studentProfile || null,
-        emailVerifiedAt: user.emailVerifiedAt || null,
         createdAt: user.createdAt,
       })),
     });
