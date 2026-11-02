@@ -1,9 +1,12 @@
 services:
   - type: web
-    name: client-9foq
+    name: client-kpqq
     runtime: static
     buildCommand: npm --prefix client install && npm --prefix client run build
     staticPublishPath: ./client/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://server-7a1u.onrender.com
     routes:
       - type: rewrite
         source: /*
